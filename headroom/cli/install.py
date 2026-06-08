@@ -157,7 +157,16 @@ def _reject_task_lifecycle(manifest: DeploymentManifest, action: str) -> None:
     "--mode", "proxy_mode", default="token", show_default=True, help="Proxy optimization mode."
 )
 @click.option("--memory", is_flag=True, help="Enable persistent memory in the proxy runtime.")
-@click.option("--no-telemetry", is_flag=True, help="Disable anonymous telemetry in the runtime.")
+@click.option(
+    "--telemetry",
+    is_flag=True,
+    help="Opt in to anonymous aggregate telemetry in the runtime (OFF by default).",
+)
+@click.option(
+    "--no-telemetry",
+    is_flag=True,
+    help="Explicitly disable anonymous telemetry (default; kept for clarity/compat).",
+)
 @click.option(
     "--image",
     default="ghcr.io/chopratejas/headroom:latest",
@@ -177,6 +186,7 @@ def install_apply(
     region: str | None,
     proxy_mode: str,
     memory: bool,
+    telemetry: bool,
     no_telemetry: bool,
     image: str,
 ) -> None:
@@ -184,6 +194,10 @@ def install_apply(
 
     if preset == InstallPreset.PERSISTENT_DOCKER.value:
         runtime = RuntimeKind.DOCKER.value
+
+    # Telemetry is opt-in: disabled unless --telemetry is passed (and never when
+    # --no-telemetry is given explicitly).
+    telemetry_enabled = telemetry and not no_telemetry
 
     manifest = build_manifest(
         profile=profile,
@@ -198,7 +212,7 @@ def install_apply(
         region=region,
         proxy_mode=proxy_mode,
         memory_enabled=memory,
-        telemetry_enabled=not no_telemetry,
+        telemetry_enabled=telemetry_enabled,
         image=image,
     )
 

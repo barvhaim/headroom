@@ -96,8 +96,20 @@ class TestProxyCLITelemetryBanner:
     def runner(self):
         return CliRunner()
 
-    def test_banner_shows_telemetry_enabled(self, runner, monkeypatch):
+    def test_banner_disabled_by_default_when_unset(self, runner, monkeypatch):
+        """Telemetry is opt-in: an unset env var means DISABLED."""
         monkeypatch.delenv("HEADROOM_TELEMETRY", raising=False)
+
+        from headroom.cli.main import main
+
+        with patch("headroom.proxy.server.run_server", side_effect=SystemExit(0)):
+            result = runner.invoke(main, ["proxy"])
+
+        assert "Telemetry:" in result.output
+        assert "DISABLED" in result.output
+
+    def test_banner_shows_telemetry_enabled_when_opted_in(self, runner, monkeypatch):
+        monkeypatch.setenv("HEADROOM_TELEMETRY", "on")
 
         from headroom.cli.main import main
 
@@ -130,7 +142,7 @@ class TestProxyCLITelemetryBanner:
         assert "DISABLED" in result.output
 
     def test_banner_shows_opt_out_instructions_when_enabled(self, runner, monkeypatch):
-        monkeypatch.delenv("HEADROOM_TELEMETRY", raising=False)
+        monkeypatch.setenv("HEADROOM_TELEMETRY", "on")
 
         from headroom.cli.main import main
 
@@ -202,7 +214,7 @@ class TestStatsEndpointTelemetryFlag:
     pytest.importorskip("fastapi")
 
     async def test_stats_includes_anon_telemetry_shipping_true(self, monkeypatch):
-        monkeypatch.delenv("HEADROOM_TELEMETRY", raising=False)
+        monkeypatch.setenv("HEADROOM_TELEMETRY", "on")
         from headroom.proxy.server import ProxyConfig, create_app
 
         app = create_app(
@@ -225,6 +237,29 @@ class TestStatsEndpointTelemetryFlag:
 
     async def test_stats_includes_anon_telemetry_shipping_false(self, monkeypatch):
         monkeypatch.setenv("HEADROOM_TELEMETRY", "off")
+        from headroom.proxy.server import ProxyConfig, create_app
+
+        app = create_app(
+            ProxyConfig(
+                cache_enabled=False,
+                rate_limit_enabled=False,
+                cost_tracking_enabled=False,
+            )
+        )
+
+        from httpx import ASGITransport, AsyncClient
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/stats")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "anon_telemetry_shipping" in data
+        assert data["anon_telemetry_shipping"] is False
+
+    async def test_stats_anon_telemetry_shipping_false_by_default(self, monkeypatch):
+        """Telemetry is opt-in: unset env var means shipping is off."""
+        monkeypatch.delenv("HEADROOM_TELEMETRY", raising=False)
         from headroom.proxy.server import ProxyConfig, create_app
 
         app = create_app(

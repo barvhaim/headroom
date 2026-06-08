@@ -51,6 +51,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/build/target \
     uv pip install --system ".[${HEADROOM_EXTRAS}]"
 
+# Pre-cache HuggingFace models at PINNED revisions so the runtime image ships
+# reproducible, audited weights and never silently fetches `main`. See
+# docker/precache_models.py for the pinned SHAs. The cache is copied into the
+# runtime stages below, which run with HF_HUB_OFFLINE=1.
+ENV HF_HOME=/opt/hf-cache
+COPY docker/precache_models.py /tmp/precache_models.py
+RUN python /tmp/precache_models.py
+
 # Build-stage smoke check: verify the extension loads end-to-end inside
 # the build image before we copy site-packages into the runtime image.
 # If this fails, the runtime image would fail Phase A0's fail-loud
@@ -73,12 +81,15 @@ RUN apt-get update && \
 COPY --from=builder ${PYTHON_SITE_PACKAGES} ${PYTHON_SITE_PACKAGES}
 COPY --from=builder /usr/local/bin/headroom /usr/local/bin/headroom
 
+# Pinned HuggingFace model cache baked at build time (see builder stage).
+COPY --from=builder /opt/hf-cache /opt/hf-cache
+
 RUN mkdir -p /home/nonroot /data && \
     if [ "$RUNTIME_USER" = "nonroot" ]; then \
       groupadd --gid 1000 nonroot && \
       useradd --uid 1000 --gid nonroot --create-home nonroot && \
       mkdir -p /home/nonroot/.headroom && \
-      chown -R nonroot:nonroot /data /home/nonroot; \
+      chown -R nonroot:nonroot /data /home/nonroot /opt/hf-cache; \
     else \
       mkdir -p /root/.headroom; \
     fi
@@ -86,9 +97,15 @@ RUN mkdir -p /home/nonroot /data && \
 USER ${RUNTIME_USER}
 WORKDIR /home/nonroot
 
+# Use only the baked, pinned model cache. HF_HUB_OFFLINE=1 turns any attempt to
+# fetch an un-cached/unpinned artifact into a hard error instead of a silent
+# `main` download. Set HF_HUB_OFFLINE=0 only if you intentionally allow runtime
+# model fetches (the VM has HF access, but the pinned cache makes that moot).
 ENV HEADROOM_HOST=0.0.0.0 \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/opt/hf-cache \
+    HF_HUB_OFFLINE=1
 
 EXPOSE 8787
 
@@ -105,13 +122,19 @@ ARG PYTHON_SITE_PACKAGES
 
 COPY --from=builder ${PYTHON_SITE_PACKAGES} ${PYTHON_SITE_PACKAGES}
 
+# Pinned HuggingFace model cache baked at build time (see builder stage).
+# Distroless has no shell to chown, so copy it world-readable for the runtime user.
+COPY --from=builder --chown=nonroot:nonroot /opt/hf-cache /opt/hf-cache
+
 USER ${RUNTIME_USER}
 WORKDIR /app
 
 ENV HEADROOM_HOST=0.0.0.0 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=${PYTHON_SITE_PACKAGES}
+    PYTHONPATH=${PYTHON_SITE_PACKAGES} \
+    HF_HOME=/opt/hf-cache \
+    HF_HUB_OFFLINE=1
 
 EXPOSE 8787
 
