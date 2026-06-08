@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Headroom — High-Level Architecture</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121723; --panel2:#171d2b; --line:#222b3d;
+    --ink:#e6edf6; --mut:#93a1b8; --dim:#6b7a93;
+    --accent:#5ee0c8; --accent2:#7aa2ff; --warn:#ffb86b; --bad:#ff7a93; --good:#8ee36b;
+    --mono:'SF Mono',ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:radial-gradient(1100px 700px at 78% -8%,#16203020,transparent),var(--bg);
+    color:var(--ink);font-family:var(--sans);line-height:1.62;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:56px 24px 120px}
+  header.hero{margin-bottom:14px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin:0 0 12px}
+  h1{font-size:40px;line-height:1.1;margin:0 0 14px;letter-spacing:-.02em;font-weight:700}
+  h1 .grad{background:linear-gradient(92deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{font-size:18px;color:var(--mut);max-width:760px;margin:0}
+  .lede b{color:var(--ink);font-weight:600}
+  h2{font-size:13px;font-family:var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
+    margin:54px 0 18px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+  h3{font-size:17px;margin:0 0 6px;letter-spacing:-.01em}
+  p{margin:0 0 14px}
+  code{font-family:var(--mono);font-size:.88em;background:#1c2433;border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;color:var(--accent)}
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .mut{color:var(--mut)} .dim{color:var(--dim)}
+
+  /* flow diagram */
+  .flow{display:flex;flex-direction:column;gap:10px;margin:8px 0 4px}
+  .node{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;display:flex;gap:14px;align-items:flex-start}
+  .node .ic{flex:0 0 38px;height:38px;border-radius:9px;display:grid;place-items:center;font-size:18px;
+    background:#1b2433;border:1px solid var(--line)}
+  .node .body{flex:1;min-width:0}
+  .node .t{font-weight:650;font-size:15px;margin:0 0 2px}
+  .node .s{color:var(--mut);font-size:13.5px;margin:0}
+  .node .tag{font-family:var(--mono);font-size:11px;color:var(--dim);position:absolute;top:14px;right:16px}
+  .node.proxy{border-color:#2c3a55;background:linear-gradient(180deg,#141c2c,#10151f)}
+  .node.proxy .ic{background:#13241f;border-color:#1d4a3f;color:var(--accent)}
+  .node.client .ic{color:var(--accent2)}
+  .node.up .ic{color:var(--warn)}
+  .arrow{align-self:center;color:var(--dim);font-size:13px;font-family:var(--mono);display:flex;align-items:center;gap:8px;margin:-2px 0}
+  .arrow .ln{height:1px;width:26px;background:linear-gradient(90deg,transparent,var(--line))}
+  .arrow b{color:var(--accent);font-weight:600}
+
+  /* nested pipeline inside proxy */
+  .pipe{margin-top:14px;border-top:1px dashed var(--line);padding-top:14px;display:grid;
+    grid-template-columns:1fr 1fr;gap:8px}
+  .step{background:#0f1420;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:12.5px}
+  .step .n{font-family:var(--mono);color:var(--accent);font-size:11px}
+  .step .h{font-weight:600;color:var(--ink);display:block;margin:2px 0 1px}
+  .step .d{color:var(--dim);font-size:11.5px}
+
+  /* cards grid */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px}
+  .card .k{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+  .card ul{margin:8px 0 0;padding-left:18px;color:var(--mut);font-size:13.5px}
+  .card li{margin:3px 0}
+  .card p{font-size:13.5px;color:var(--mut);margin:0}
+
+  /* invariants */
+  .inv{display:grid;gap:9px}
+  .inv .row{display:grid;grid-template-columns:54px 1fr;gap:14px;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;padding:13px 16px;align-items:start}
+  .inv .id{font-family:var(--mono);font-weight:700;color:var(--accent);font-size:13px;
+    background:#13241f;border:1px solid #1d4a3f;border-radius:7px;padding:6px 0;text-align:center}
+  .inv .tx{font-size:13.5px;color:var(--mut)}
+  .inv .tx b{color:var(--ink);font-weight:600}
+
+  /* split note */
+  .lang{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .lang .col{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .badge{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 9px;border-radius:20px;
+    border:1px solid var(--line);color:var(--mut);margin-bottom:10px}
+  .badge.py{color:#ffd35e;border-color:#5a4d1f;background:#221d0c}
+  .badge.rs{color:#ff9b6b;border-color:#5a341f;background:#22130c}
+
+  .callout{background:linear-gradient(180deg,#14110a,#0f0d08);border:1px solid #4a3a18;
+    border-left:3px solid var(--warn);border-radius:10px;padding:15px 18px;margin:18px 0;font-size:14px;color:#e9dcc2}
+  .callout b{color:var(--warn)}
+  footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--line);color:var(--dim);font-size:12.5px;font-family:var(--mono)}
+  @media(max-width:640px){.pipe,.lang{grid-template-columns:1fr}h1{font-size:30px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow">Headroom · architecture</p>
+    <h1>A local proxy that makes Claude Code<br><span class="grad">send fewer tokens upstream</span></h1>
+    <p class="lede">Headroom sits on <b>localhost</b> between your coding agent and an Anthropic-compatible
+    gateway. It compresses the bulky parts of each request — tool outputs, logs, large context — while
+    treating the prompt cache as <b>sacred</b>. Nothing leaves the machine except the LLM traffic itself.</p>
+  </header>
+
+  <!-- ===================== REQUEST FLOW ===================== -->
+  <h2>The request path</h2>
+  <div class="flow">
+
+    <div class="node client">
+      <div class="ic">▢</div>
+      <div class="body">
+        <p class="t">Claude Code (or any Anthropic-compatible client)</p>
+        <p class="s">Points <code>ANTHROPIC_BASE_URL</code> at <code>127.0.0.1:8787</code>. Token &amp; beta headers unchanged.</p>
+      </div>
+    </div>
+
+    <div class="arrow"><span class="ln"></span> POST <b>/v1/messages</b> <span class="ln"></span></div>
+
+    <div class="node proxy">
+      <div class="ic">◆</div>
+      <div class="body">
+        <p class="t">Headroom proxy <span class="tag">FastAPI / axum</span></p>
+        <p class="s">Buffers the body <b>byte-faithfully</b>, classifies auth mode, then runs the compression
+        pipeline on the <b>live zone only</b> — never the cached prefix.</p>
+
+        <div class="pipe">
+          <div class="step"><span class="n">1</span><span class="h">Classify auth mode</span><span class="d">payg · oauth · subscription → gates policy</span></div>
+          <div class="step"><span class="n">2</span><span class="h">Honor cache_control</span><span class="d">customer breakpoints → frozen_message_count</span></div>
+          <div class="step"><span class="n">3</span><span class="h">Find the live zone</span><span class="d">latest user turn + latest tool_result, walking from the tail</span></div>
+          <div class="step"><span class="n">4</span><span class="h">Detect content type</span><span class="d">code · JSON · log · diff · search (Magika)</span></div>
+          <div class="step"><span class="n">5</span><span class="h">Type-aware compress</span><span class="d">SmartCrusher / Log / Diff / Search / Kompress</span></div>
+          <div class="step"><span class="n">6</span><span class="h">Token-validate</span><span class="d">if compressed ≥ original tokens → keep original</span></div>
+          <div class="step"><span class="n">7</span><span class="h">CCR marker</span><span class="d">hash-key the dropped bytes, inject retrieve tool</span></div>
+          <div class="step"><span class="n">8</span><span class="h">Normalize &amp; forward</span><span class="d">sort tools, strip x-headroom-*, send raw bytes</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow"><span class="ln"></span> reqwest / httpx <b>content=raw_bytes</b> <span class="ln"></span></div>
+
+    <div class="node up">
+      <div class="ic">▲</div>
+      <div class="body">
+        <p class="t">Your Anthropic-compatible gateway → Claude models</p>
+        <p class="s">Receives a smaller request. The cached prefix arrives byte-identical, so the
+        <b>prompt cache still hits</b>. SSE response streams back through the proxy untouched.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>The whole design rests on one idea.</b> Compression is <i>not</i> "drop old messages from history" —
+    that would bust the prompt cache on every turn. Instead: <b>the cache hot zone (system prompt, tools,
+    old turns, reasoning/thinking blocks) is never touched.</b> Only the freshest turn — the live zone — is
+    compressed, type-aware and position-preserving.
+  </div>
+
+  <!-- ===================== KEY SUBSYSTEMS ===================== -->
+  <h2>Key subsystems</h2>
+  <div class="grid">
+    <div class="card">
+      <p class="k">Live-zone compressor</p>
+      <p>Walks <code>messages</code> from the tail, isolates the latest user content &amp; tool results, dispatches each block to a type-specific compressor, and edits bytes <b>in place</b>.</p>
+      <ul>
+        <li>SmartCrusher — JSON / structured</li>
+        <li>LogCompressor — verbose logs</li>
+        <li>DiffCompressor — patches</li>
+        <li>SearchCompressor — grep/find output</li>
+        <li>Kompress — plain text (ONNX)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <p class="k">CCR · compress-cache-retrieve</p>
+      <p>Compression is <b>reversible</b>. Dropped bytes are hash-keyed and stored; a <code>headroom_retrieve</code> tool is registered so the model can pull the full content back if it actually needs it.</p>
+    </div>
+
+    <div class="card">
+      <p class="k">Tokenizer &amp; validation</p>
+      <p>Every compression is checked with a real tokenizer (HF / tiktoken). If it wouldn't shrink the token count, the <b>original is forwarded</b> — compression can never make a request bigger.</p>
+    </div>
+
+    <div class="card">
+      <p class="k">Auth-mode policy</p>
+      <p>Headers classify the client as PAYG, OAuth, or subscription. PAYG gets aggressive compression; OAuth/subscription prefer lossless passthrough and avoid any fingerprint-altering header rewrites.</p>
+    </div>
+
+    <div class="card">
+      <p class="k">TOIN observability</p>
+      <p>Tool-Output Intelligence Network watches patterns across requests to tune compressors — strictly <b>observe-only</b>. It never alters a live request's decision; recommendations are published between deploys.</p>
+    </div>
+
+    <div class="card">
+      <p class="k">Endpoints &amp; metrics</p>
+      <p><code>/livez</code> · <code>/readyz</code> health, <code>/stats</code> for tokens saved, plus Prometheus metrics and a built-in dashboard. Multi-provider handlers: Anthropic, OpenAI, Gemini, Bedrock/Vertex.</p>
+    </div>
+  </div>
+
+  <!-- ===================== INVARIANTS ===================== -->
+  <h2>The cache-safety invariants</h2>
+  <p class="mut" style="margin-bottom:18px">Every transform in the pipeline is held to these rules. They are what keep the prompt cache hitting while still shrinking the payload.</p>
+  <div class="inv">
+    <div class="row"><div class="id">I1</div><div class="tx"><b>Byte-faithful passthrough.</b> Bytes sent upstream are SHA-256-equal to bytes received — except the ranges a transform deliberately changed. No re-serialization, no whitespace drift.</div></div>
+    <div class="row"><div class="id">I2</div><div class="tx"><b>Cache hot zone never modified.</b> system, tools, any message before <code>frozen_message_count</code>, and all reasoning/thinking/redacted/compaction blocks are immutable.</div></div>
+    <div class="row"><div class="id">I3</div><div class="tx"><b>Append-only.</b> Once a message has gone upstream, its bytes are frozen forever. Compression touches only the newest turn.</div></div>
+    <div class="row"><div class="id">I4</div><div class="tx"><b>Deterministic.</b> Same <code>(bytes, frozen_count, auth_mode)</code> → byte-equal output. No timestamps, no random seeds.</div></div>
+    <div class="row"><div class="id">I5</div><div class="tx"><b>Token-aware, not byte-aware.</b> Validated against a tokenizer; if it doesn't reduce tokens, the original is forwarded.</div></div>
+    <div class="row"><div class="id">I6</div><div class="tx"><b>Position-preserving.</b> Never reorders, splits, or adds inline fields to a block. CCR directives ride in a separate sibling marker block.</div></div>
+  </div>
+
+  <!-- ===================== LANGUAGE SPLIT ===================== -->
+  <h2>Two-language implementation</h2>
+  <p class="mut" style="margin-bottom:18px">Headroom is mid-migration: a mature Python proxy is being progressively re-implemented as a faster Rust core, behind the same wire contract and invariants.</p>
+  <div class="lang">
+    <div class="col">
+      <span class="badge py">Python — <code>headroom/</code></span>
+      <h3>The running proxy today</h3>
+      <p class="mut" style="font-size:13.5px">FastAPI server, per-provider handlers, ContentRouter, CCR, memory, dashboard, CLI wrappers, evals. Calls into the Rust core for hot-path compression.</p>
+    </div>
+    <div class="col">
+      <span class="badge rs">Rust — <code>crates/</code></span>
+      <h3>The performance core</h3>
+      <p class="mut" style="font-size:13.5px"><code>headroom-core</code> (tokenizer, smart_crusher, ccr, auth_mode, cache_control), <code>headroom-proxy</code> (axum), exposed to Python via <code>headroom-py</code> / maturin as <code>_core.so</code>.</p>
+    </div>
+  </div>
+  <p class="dim" style="margin-top:14px;font-size:13px">The phased plan — passthrough lockdown → live-zone engine → Rust SSE parser → Bedrock/Vertex native → cache stabilization → auth policy → Python retirement — lives in <code>REALIGNMENT/</code>.</p>
+
+  <footer>
+    headroom · local compression proxy for Claude Code &nbsp;·&nbsp; this fork: telemetry off by default, pinned offline models<br>
+    sources: README.md · REALIGNMENT/02-architecture.md · headroom/proxy/ · crates/headroom-core/
+  </footer>
+
+</div>
+</body>
+</html>
