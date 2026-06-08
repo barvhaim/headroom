@@ -36,4 +36,14 @@ echo "Point Claude Code at this proxy (keep your token + headers):"
 echo "  ~/.claude/settings.json → \"ANTHROPIC_BASE_URL\": \"http://127.0.0.1:${HEADROOM_PORT}\""
 echo
 
-exec headroom proxy --port "${HEADROOM_PORT}" --backend anthropic "$@"
+# Resolve how to invoke headroom: prefer it on PATH (activated venv / global
+# install), else fall back to `uv run` from the repo's .venv.
+if command -v headroom >/dev/null 2>&1; then
+  exec headroom proxy --port "${HEADROOM_PORT}" --backend anthropic "$@"
+elif command -v uv >/dev/null 2>&1; then
+  exec uv run headroom proxy --port "${HEADROOM_PORT}" --backend anthropic "$@"
+else
+  echo "error: 'headroom' not found on PATH and 'uv' is not installed." >&2
+  echo "       run 'uv sync --extra proxy' first, or activate the venv." >&2
+  exit 1
+fi
